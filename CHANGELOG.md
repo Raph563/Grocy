@@ -6,6 +6,14 @@ The format follows Keep a Changelog and semantic versioning.
 
 ## [Unreleased]
 
+## [3.1.3] - 2026-02-20
+
+### Fixed
+- Strengthened settings-overlay anti-hide protection in StatNerd:
+  - when open, overlay is now forced visible even if external scripts toggle classes/styles repeatedly;
+  - added root DOM observer to restore the overlay if another script removes it from the DOM while it is open.
+- This hardens compatibility with external "hide legacy addon buttons/overlays" style toggles.
+
 ## [3.1.2] - 2026-02-20
 
 ### Added

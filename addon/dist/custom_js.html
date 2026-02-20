@@ -72,7 +72,9 @@
     aiOverlayLastCallAt: 0,
     aiValidationInProgress: false,
     aiSettingsOverlayObserver: null,
+    aiSettingsOverlayRootObserver: null,
     aiSettingsOverlayGuardApplying: false,
+    aiSettingsOverlayNode: null,
     overlayFocus: null,
     overlayActiveIndex: -1,
     overlayDetailsExpanded: true,
@@ -725,7 +727,7 @@
   const USER_DATA_TRANSFER_SCHEMA = 'statnerd-user-data';
   const USER_DATA_TRANSFER_SCHEMA_VERSION = 1;
   const USER_DATA_TRANSFER_STORAGE_PREFIX = 'grocy_dash_';
-  const ADDON_RUNTIME_VERSION = '3.1.2';
+  const ADDON_RUNTIME_VERSION = '3.1.3';
   const ADDON_UPDATE_DEFAULT_REPOSITORY = 'Raph563/Grocy';
   const ADDON_UPDATE_DEFAULT_LOCAL_ROOT = 'C:\\Users\\Admin\\Documents\\Docker\\grocy';
   const ADDON_UPDATE_RELAY_BASE_URL = 'http://127.0.0.1:17863';
@@ -10679,6 +10681,12 @@
     S.aiSettingsOverlayObserver = null;
   }
 
+  function disconnectAiSettingsOverlayRootObserver() {
+    if (!S.aiSettingsOverlayRootObserver) return;
+    try { S.aiSettingsOverlayRootObserver.disconnect(); } catch (_err) {}
+    S.aiSettingsOverlayRootObserver = null;
+  }
+
   function enforceAiSettingsOverlayVisibility(overlay) {
     if (!overlay) return;
     overlay.classList.remove('d-none');
@@ -10702,15 +10710,19 @@
     const overlay = document.getElementById('dash_ai_settings_overlay');
     if (!overlay) {
       disconnectAiSettingsOverlayObserver();
+      disconnectAiSettingsOverlayRootObserver();
       return;
     }
 
     if (force !== true) {
       clearAiSettingsOverlayVisibilityLock(overlay);
       disconnectAiSettingsOverlayObserver();
+      disconnectAiSettingsOverlayRootObserver();
+      S.aiSettingsOverlayNode = null;
       return;
     }
 
+    S.aiSettingsOverlayNode = overlay;
     enforceAiSettingsOverlayVisibility(overlay);
     if (!window.MutationObserver || S.aiSettingsOverlayObserver) return;
 
@@ -10736,6 +10748,28 @@
       });
     } catch (_err) {
       disconnectAiSettingsOverlayObserver();
+    }
+
+    if (!document.body || S.aiSettingsOverlayRootObserver) return;
+    S.aiSettingsOverlayRootObserver = new MutationObserver(() => {
+      const current = document.getElementById('dash_ai_settings_overlay');
+      if (current) {
+        if (current.getAttribute('data-dash-overlay-force-visible') === '1') {
+          enforceAiSettingsOverlayVisibility(current);
+        }
+        return;
+      }
+      const saved = S.aiSettingsOverlayNode;
+      if (!saved || saved.getAttribute('data-dash-overlay-force-visible') !== '1') return;
+      if (!document.body || !saved.isConnected) {
+        try { document.body.appendChild(saved); } catch (_err) { return; }
+      }
+      enforceAiSettingsOverlayVisibility(saved);
+    });
+    try {
+      S.aiSettingsOverlayRootObserver.observe(document.body, { childList: true, subtree: true });
+    } catch (_err) {
+      disconnectAiSettingsOverlayRootObserver();
     }
   }
 
