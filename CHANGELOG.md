@@ -6,6 +6,21 @@ The format follows Keep a Changelog and semantic versioning.
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-02-20
+
+### Added
+- New report-only mode for StatNerd dashboard on stock overview:
+  - public URL: `/stockoverview?nerdstats=report`
+  - new `Rapports` dropdown entry: `Statistiques & graphiques`
+  - dedicated layout hides stock table/filter/tabs while keeping dashboard controls active.
+
+### Changed
+- Stock overview standard view (`/stockoverview`) no longer renders the StatNerd dashboard block.
+- Dashboard initialization, rendering listeners, and heavy loading now run only in report mode.
+
+### Fixed
+- StatNerd settings overlay visibility is now guarded against external UI toggles that try to hide addon overlays; opening settings keeps the overlay visible until explicit close.
+
 ## [3.1.1] - 2026-02-19
 
 ### Fixed

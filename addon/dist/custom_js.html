@@ -71,6 +71,8 @@
     aiOverlayTotalCalls: 0,
     aiOverlayLastCallAt: 0,
     aiValidationInProgress: false,
+    aiSettingsOverlayObserver: null,
+    aiSettingsOverlayGuardApplying: false,
     overlayFocus: null,
     overlayActiveIndex: -1,
     overlayDetailsExpanded: true,
@@ -153,6 +155,10 @@
     addonUpdateReleaseChoices: [],
     addonUpdateLocalVersionPromise: null,
   };
+
+  const DASH_REPORT_QUERY_KEY = 'nerdstats';
+  const DASH_REPORT_QUERY_VALUE = 'report';
+  const DASH_REPORT_MENU_ENTRY_ID = 'dash_report_menu_entry';
 
   const CHART_IDS = [
     'g_val', 'g_qty', 'risk', 'due', 'brand_price', 'brand_rel', 'top_val', 'price_val', 'g_cal'
@@ -719,7 +725,7 @@
   const USER_DATA_TRANSFER_SCHEMA = 'statnerd-user-data';
   const USER_DATA_TRANSFER_SCHEMA_VERSION = 1;
   const USER_DATA_TRANSFER_STORAGE_PREFIX = 'grocy_dash_';
-  const ADDON_RUNTIME_VERSION = '3.1.1';
+  const ADDON_RUNTIME_VERSION = '3.1.2';
   const ADDON_UPDATE_DEFAULT_REPOSITORY = 'Raph563/Grocy';
   const ADDON_UPDATE_DEFAULT_LOCAL_ROOT = 'C:\\Users\\Admin\\Documents\\Docker\\grocy';
   const ADDON_UPDATE_RELAY_BASE_URL = 'http://127.0.0.1:17863';
@@ -4280,8 +4286,10 @@
     S.active = 'all';
     setActive('all');
     closeChartOverlay();
-    // On targeted stock views (brand/category), collapse analytics to keep results focused.
-    setDashboardCollapsed(true);
+    if (!isDashboardReportMode()) {
+      // On targeted stock views (brand/category), collapse analytics to keep results focused.
+      setDashboardCollapsed(true);
+    }
 
     const d = dt();
     if (d) {
@@ -7520,6 +7528,21 @@
       #dash_ai_settings_overlay .custom-control.custom-switch .custom-control-input:focus + .custom-control-label::before {
         box-shadow: 0 0 0 0.18rem rgba(13,110,253,0.28);
       }
+      body.dash-report-page #table-filter-row,
+      body.dash-report-page #stock-overview-custom-tabs,
+      body.dash-report-page #stock-overview-table,
+      body.dash-report-page #stock-overview-table_wrapper {
+        display: none !important;
+      }
+      body.dash-report-page .title-related-links + .border-top.border-bottom {
+        display: none !important;
+      }
+      body.dash-report-page #stock-analytics-dashboard {
+        margin-top: 0.75rem !important;
+      }
+      body.dash-report-page .title-related-links {
+        margin-bottom: 0.5rem;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -10583,6 +10606,10 @@
     initDashboard();
     setDashboardView(S.dashboardView || 'stats');
     setRankingsDetailsExpanded(S.rankingsDetailsExpanded === true);
+    if (isDashboardReportMode()) {
+      applyDashboardReportModeLayout();
+      return;
+    }
 
     if (wasCollapsed) {
       setDashboardCollapsed(true, { ensureReady: false });
@@ -10601,6 +10628,7 @@
   function rebuildAiSettingsOverlayForLanguage() {
     const overlay = document.getElementById('dash_ai_settings_overlay');
     const wasOpen = !!(overlay && !overlay.classList.contains('d-none'));
+    setAiSettingsOverlayForcedVisible(false);
     setBrandLogoMenuOpen(false);
     setGroupLogoMenuOpen(false);
     closeBrandLogoLightbox();
@@ -10645,12 +10673,81 @@
       : t('ai_settings_btn_title_not_configured', { provider: active.def.label });
   }
 
+  function disconnectAiSettingsOverlayObserver() {
+    if (!S.aiSettingsOverlayObserver) return;
+    try { S.aiSettingsOverlayObserver.disconnect(); } catch (_err) {}
+    S.aiSettingsOverlayObserver = null;
+  }
+
+  function enforceAiSettingsOverlayVisibility(overlay) {
+    if (!overlay) return;
+    overlay.classList.remove('d-none');
+    overlay.setAttribute('data-dash-overlay-force-visible', '1');
+    overlay.style.setProperty('display', 'block', 'important');
+    overlay.style.setProperty('visibility', 'visible', 'important');
+    overlay.style.setProperty('opacity', '1', 'important');
+    overlay.style.setProperty('pointer-events', 'auto', 'important');
+  }
+
+  function clearAiSettingsOverlayVisibilityLock(overlay) {
+    if (!overlay) return;
+    overlay.removeAttribute('data-dash-overlay-force-visible');
+    overlay.style.removeProperty('display');
+    overlay.style.removeProperty('visibility');
+    overlay.style.removeProperty('opacity');
+    overlay.style.removeProperty('pointer-events');
+  }
+
+  function setAiSettingsOverlayForcedVisible(force = true) {
+    const overlay = document.getElementById('dash_ai_settings_overlay');
+    if (!overlay) {
+      disconnectAiSettingsOverlayObserver();
+      return;
+    }
+
+    if (force !== true) {
+      clearAiSettingsOverlayVisibilityLock(overlay);
+      disconnectAiSettingsOverlayObserver();
+      return;
+    }
+
+    enforceAiSettingsOverlayVisibility(overlay);
+    if (!window.MutationObserver || S.aiSettingsOverlayObserver) return;
+
+    S.aiSettingsOverlayObserver = new MutationObserver(() => {
+      const current = document.getElementById('dash_ai_settings_overlay');
+      if (!current || current.getAttribute('data-dash-overlay-force-visible') !== '1') {
+        disconnectAiSettingsOverlayObserver();
+        return;
+      }
+      if (S.aiSettingsOverlayGuardApplying === true) return;
+      S.aiSettingsOverlayGuardApplying = true;
+      try {
+        enforceAiSettingsOverlayVisibility(current);
+      } finally {
+        S.aiSettingsOverlayGuardApplying = false;
+      }
+    });
+
+    try {
+      S.aiSettingsOverlayObserver.observe(overlay, {
+        attributes: true,
+        attributeFilter: ['class', 'style'],
+      });
+    } catch (_err) {
+      disconnectAiSettingsOverlayObserver();
+    }
+  }
+
   function closeAiSettingsOverlay() {
     setBrandLogoMenuOpen(false);
     setGroupLogoMenuOpen(false);
     closeBrandLogoLightbox();
     const overlay = document.getElementById('dash_ai_settings_overlay');
-    if (overlay) overlay.classList.add('d-none');
+    if (overlay) {
+      setAiSettingsOverlayForcedVisible(false);
+      overlay.classList.add('d-none');
+    }
   }
 
   function setPhotoSearchSettingsStatus(text = '', level = 'muted') {
@@ -13554,7 +13651,10 @@
     fillAiSettingsForm();
     syncAiSettingsButton();
     const overlay = document.getElementById('dash_ai_settings_overlay');
-    if (overlay) overlay.classList.remove('d-none');
+    if (overlay) {
+      overlay.classList.remove('d-none');
+      setAiSettingsOverlayForcedVisible(true);
+    }
   }
 
   function openProduct(productId) {
@@ -23166,6 +23266,111 @@
     setTimeout(bindDraw, 200);
   }
 
+  function isStockOverviewPath() {
+    const path = clean(window.location && window.location.pathname ? window.location.pathname : '');
+    return /\/stockoverview\/?$/i.test(path);
+  }
+
+  function isDashboardReportMode() {
+    if (!isStockOverviewPath() && !document.getElementById('stock-overview-table')) return false;
+    try {
+      const params = new URLSearchParams(window.location && window.location.search ? window.location.search : '');
+      const raw = clean(params.get(DASH_REPORT_QUERY_KEY) || '').toLowerCase();
+      return raw === DASH_REPORT_QUERY_VALUE;
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  function buildDashboardReportUrl() {
+    let base = '/stockoverview';
+    try {
+      if (typeof U === 'function') {
+        const helperUrl = clean(U('/stockoverview') || '');
+        if (helperUrl) base = helperUrl;
+      }
+    } catch (_err) {
+      // Keep plain fallback.
+    }
+    try {
+      const absolute = new URL(base, window.location.origin);
+      absolute.searchParams.set(DASH_REPORT_QUERY_KEY, DASH_REPORT_QUERY_VALUE);
+      return `${absolute.pathname}${absolute.search}${absolute.hash}`;
+    } catch (_err) {
+      return `${base}${base.includes('?') ? '&' : '?'}${encodeURIComponent(DASH_REPORT_QUERY_KEY)}=${encodeURIComponent(DASH_REPORT_QUERY_VALUE)}`;
+    }
+  }
+
+  function findStockReportsMenu() {
+    const relatedLinks = document.querySelector('.title-related-links #related-links');
+    if (!relatedLinks) return null;
+    const menus = Array.from(relatedLinks.querySelectorAll('.dropdown-menu'));
+    if (!menus.length) return null;
+
+    let bestMenu = null;
+    let bestScore = -1;
+    menus.forEach((menu) => {
+      let score = 0;
+      if (menu.querySelector('a[href*="/stockreports/spendings"]')) score += 4;
+      if (menu.querySelector('a[href*="/locationcontentsheet"]')) score += 4;
+      if (menu.querySelector('a[href*="/stocklocations"]')) score += 2;
+      if (score > bestScore) {
+        bestScore = score;
+        bestMenu = menu;
+      }
+    });
+
+    return bestMenu || menus[0] || null;
+  }
+
+  function injectDashboardReportMenuItem() {
+    if (!isStockOverviewPath()) return false;
+    const menu = findStockReportsMenu();
+    if (!menu) return false;
+
+    const hasExisting = Array.from(menu.querySelectorAll('a.dropdown-item'))
+      .some((anchor) => {
+        if (anchor.id === DASH_REPORT_MENU_ENTRY_ID) return true;
+        const href = clean(anchor.getAttribute('href') || '');
+        return href.includes(`${DASH_REPORT_QUERY_KEY}=${DASH_REPORT_QUERY_VALUE}`);
+      });
+    if (hasExisting) return true;
+
+    const entry = document.createElement('a');
+    entry.id = DASH_REPORT_MENU_ENTRY_ID;
+    entry.className = 'dropdown-item';
+    entry.href = buildDashboardReportUrl();
+    entry.textContent = t('dash_title');
+    menu.appendChild(entry);
+    return true;
+  }
+
+  function applyDashboardReportModeLayout() {
+    const reportMode = isDashboardReportMode();
+    if (document.body) document.body.classList.toggle('dash-report-page', reportMode);
+    if (!reportMode) return;
+
+    document.getElementById('table-filter-row')?.classList.add('d-none');
+    document.getElementById('stock-overview-custom-tabs')?.classList.add('d-none');
+
+    const infoMissing = document.getElementById('info-missing-products');
+    const statusBar = infoMissing && infoMissing.closest ? infoMissing.closest('.border-top.border-bottom') : null;
+    if (statusBar) statusBar.classList.add('d-none');
+
+    const table = document.getElementById('stock-overview-table');
+    const tableRow = table && table.closest ? table.closest('.row') : null;
+    if (tableRow) tableRow.classList.add('d-none');
+
+    const title = document.querySelector('.title-related-links .title');
+    if (title) title.textContent = t('dash_title');
+
+    const toggle = document.getElementById('dash_toggle');
+    if (toggle) toggle.classList.add('d-none');
+
+    setDashboardView('stats');
+    setDashboardCollapsed(false, { ensureReady: true });
+  }
+
   function isProductFormPage() {
     const path = clean(window.location.pathname);
     return /\/product\/(new|\d+)\/?$/.test(path);
@@ -28652,18 +28857,28 @@
     };
 
     // Product helper features are now maintained in the dedicated Grocy_Product_Helper addon.
+    if (!isStockOverviewPath()) return;
+    safeRun('injectDashboardReportMenuItem', () => injectDashboardReportMenuItem());
 
     const table = document.getElementById('stock-overview-table');
     if (!table) return;
+    const reportMode = isDashboardReportMode();
+
+    if (!reportMode) {
+      safeRun('initTabs', () => initTabs());
+      return;
+    }
 
     safeRun('loadAiSettings', () => loadAiSettings());
     safeRun('loadBrandLogoSettings', () => loadBrandLogoSettings());
     safeRun('loadUiState', () => loadUiState());
+    S.dashboardOpen = true;
+    S.dashboardView = 'stats';
     safeRun('loadAddonCompatibilityState', () => loadAddonCompatibilityState());
     safeRun('loadAddonUpdateState', () => loadAddonUpdateState());
-    safeRun('initTabs', () => initTabs());
     safeRun('registerFacetFilter', () => registerFacetFilter());
     safeRun('initDashboard', () => initDashboard());
+    safeRun('applyDashboardReportModeLayout', () => applyDashboardReportModeLayout());
     safeRun('bindDraw', () => bindDraw());
 
     const search = document.getElementById('search');
